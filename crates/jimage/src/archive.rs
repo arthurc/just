@@ -3,6 +3,7 @@ mod parser;
 use std::{
     convert::TryFrom,
     fmt::{self, Debug},
+    io::{Cursor, Read},
 };
 
 use byteorder::NativeEndian;
@@ -12,6 +13,8 @@ pub use crate::JImageError;
 use self::parser::Parser;
 
 const HASH_MULTIPLIER: i32 = 0x01000193;
+
+pub type Attributes = [u64; AttributeKind::Total as usize];
 
 #[derive(PartialEq, Debug)]
 pub enum AttributeKind {
@@ -143,10 +146,7 @@ where
 
         let attributes = Parser::<_>::new(attributes_data).parse_attributes().ok()?;
 
-        let resource = Resource {
-            archive: self,
-            attributes,
-        };
+        let resource = Resource::new(self, attributes);
 
         if Self::verify(&resource, path) {
             Some(resource)
@@ -229,17 +229,33 @@ impl<'a, R: AsRef<[u8]>> Iterator for Resources<'a, R> {
 
         self.index += 1;
 
-        Some(Resource {
-            archive: self.archive,
-            attributes,
-        })
+        Some(Resource::new(self.archive, attributes))
     }
 }
 
 pub struct Resource<'a, R> {
     attributes: [u64; AttributeKind::Total as usize],
     archive: &'a Archive<R>,
+    cursor: Cursor<&'a [u8]>,
 }
+
+impl<'a, R> Resource<'a, R>
+where
+    R: AsRef<[u8]>,
+{
+    fn new(archive: &'a Archive<R>, attributes: Attributes) -> Self {
+        let offset =
+            archive.resource_data_start + attributes[AttributeKind::Offset as usize] as usize;
+        let size = attributes[AttributeKind::Uncompressed as usize] as usize;
+
+        Self {
+            archive,
+            attributes,
+            cursor: Cursor::new(&archive.buf.as_ref()[offset..offset + size]),
+        }
+    }
+}
+
 impl<R> fmt::Debug for Resource<'_, R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Resource")
@@ -269,12 +285,6 @@ where
 
     pub fn offset(&self) -> usize {
         self.attributes[AttributeKind::Offset as usize] as usize
-    }
-
-    pub fn bytes(&self) -> &'a [u8] {
-        let offset = self.archive.resource_data_start + self.offset();
-        let size = self.attributes[AttributeKind::Uncompressed as usize] as usize;
-        &self.archive.buf.as_ref()[offset..offset + size]
     }
 
     pub fn full_name(&self) -> String {
@@ -322,5 +332,11 @@ where
         }
 
         std::str::from_utf8(bytes).ok()
+    }
+}
+
+impl<R> Read for Resource<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.cursor.read(buf)
     }
 }

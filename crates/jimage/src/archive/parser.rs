@@ -10,6 +10,8 @@ use crate::{
     Archive, JImageError,
 };
 
+use super::Attributes;
+
 pub struct Parser<R, E: ByteOrder = NativeEndian> {
     r: Cursor<R>,
     phantom: PhantomData<E>,
@@ -85,9 +87,7 @@ where
         })
     }
 
-    pub(crate) fn parse_attributes(
-        &mut self,
-    ) -> Result<[u64; AttributeKind::Total as usize], JImageError> {
+    pub(crate) fn parse_attributes(&mut self) -> Result<Attributes, JImageError> {
         let mut attributes = [0; AttributeKind::Total as usize];
         while let Some((kind, value)) = self.parse_attribute()? {
             attributes[kind as usize] = value;

@@ -1,6 +1,6 @@
 use std::{env, fs::File, path::PathBuf};
 
-use jimage::Archive;
+use just_jimage::Archive;
 use memmap::Mmap;
 
 fn main() {

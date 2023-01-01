@@ -1,6 +1,6 @@
 use std::{env, fs::File, path::PathBuf, process::Command};
 
-use jimage::Archive;
+use just_jimage::Archive;
 use memmap::Mmap;
 
 fn modules_path() -> PathBuf {
@@ -9,11 +9,11 @@ fn modules_path() -> PathBuf {
         .unwrap()
 }
 
-fn with_archive(f: impl FnOnce(Archive)) {
+fn with_archive(f: impl FnOnce(Archive<Mmap>)) {
     let file = File::open(modules_path().clone()).unwrap();
     let mmap = unsafe { Mmap::map(&file).unwrap() };
 
-    f(Archive::parse(&mmap).unwrap());
+    f(Archive::parse(mmap).unwrap());
 }
 
 #[test]

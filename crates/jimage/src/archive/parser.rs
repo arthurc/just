@@ -3,27 +3,36 @@ use std::{
     marker::PhantomData,
 };
 
-use byteorder::{ByteOrder, ReadBytesExt};
+use byteorder::{ByteOrder, NativeEndian, ReadBytesExt};
 
 use crate::{
     archive::{AttributeKind, Header, Index},
     Archive, JImageError,
 };
 
-pub struct Parser<'a, E: ByteOrder> {
-    r: Cursor<&'a [u8]>,
+pub struct Parser<R, E: ByteOrder = NativeEndian> {
+    r: Cursor<R>,
     phantom: PhantomData<E>,
 }
 
-impl<'a, E: ByteOrder> Parser<'a, E> {
-    pub(crate) fn new(buf: &'a [u8]) -> Self {
+impl<R, E> Parser<R, E>
+where
+    E: ByteOrder,
+{
+    pub(crate) fn new(buf: R) -> Self {
         Self {
             r: Cursor::new(buf),
             phantom: PhantomData,
         }
     }
+}
 
-    pub(crate) fn parse_archive(mut self) -> Result<Archive<'a>, JImageError> {
+impl<R, E> Parser<R, E>
+where
+    R: AsRef<[u8]>,
+    E: ByteOrder,
+{
+    pub(crate) fn parse_archive(mut self) -> Result<Archive<R>, JImageError> {
         let header = self.parse_header()?;
         let index = self.parse_index(&header)?;
         let resource_data_start = self.r.position() as usize;
@@ -133,28 +142,29 @@ impl<'a, E: ByteOrder> Parser<'a, E> {
 }
 
 #[cfg(test)]
-mod parse_magic_identifier_tests {
-    use byteorder::LittleEndian;
+type TestParser<'a> = Parser<&'a [u8], byteorder::LittleEndian>;
 
+#[cfg(test)]
+mod parse_magic_identifier_tests {
     use super::*;
 
     #[test]
     fn it_should_be_able_to_parse_the_correct_identifier() {
-        assert!(Parser::<LittleEndian>::new(&[0xda, 0xda, 0xfe, 0xca])
+        assert!(TestParser::new(&[0xda, 0xda, 0xfe, 0xca])
             .parse_magic_identifier()
             .is_ok());
     }
 
     #[test]
     fn it_should_fail_if_there_is_not_enough_data() {
-        assert!(Parser::<LittleEndian>::new(&[0xca, 0xfe, 0xda])
+        assert!(TestParser::new(&[0xca, 0xfe, 0xda])
             .parse_magic_identifier()
             .is_err());
     }
 
     #[test]
     fn it_should_fail_if_the_magic_identifier_is_incorrect() {
-        assert!(Parser::<LittleEndian>::new(&[0xda, 0xda, 0xfe, 0xcb])
+        assert!(TestParser::new(&[0xda, 0xda, 0xfe, 0xcb])
             .parse_magic_identifier()
             .is_err());
     }
@@ -162,14 +172,12 @@ mod parse_magic_identifier_tests {
 
 #[cfg(test)]
 mod parse_version_tests {
-    use byteorder::LittleEndian;
-
     use super::*;
 
     #[test]
     fn it_should_be_able_to_parse_a_version() {
         assert_eq!(
-            Parser::<LittleEndian>::new(&[0x34, 0x12, 0x78, 0x56])
+            TestParser::new(&[0x34, 0x12, 0x78, 0x56])
                 .parse_version()
                 .unwrap(),
             (0x5678, 0x1234)
@@ -179,14 +187,12 @@ mod parse_version_tests {
 
 #[cfg(test)]
 mod parse_attribute_tests {
-    use byteorder::LittleEndian;
-
     use super::*;
 
     #[test]
     fn it_should_be_able_to_parse_an_attribute() {
         assert_eq!(
-            Parser::<LittleEndian>::new(&[0x22, 0x03, 0x35, 0x62])
+            TestParser::new(&[0x22, 0x03, 0x35, 0x62])
                 .parse_attribute()
                 .unwrap(),
             Some((AttributeKind::Extension, 0x33562))
@@ -195,7 +201,7 @@ mod parse_attribute_tests {
 
     #[test]
     fn it_should_fail_if_there_are_not_enough_bytes_read() {
-        assert!(Parser::<LittleEndian>::new(&[0x22, 0x03, 0x35])
+        assert!(TestParser::new(&[0x22, 0x03, 0x35])
             .parse_attribute()
             .is_err());
     }

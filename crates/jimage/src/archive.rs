@@ -96,15 +96,18 @@ impl TryFrom<u8> for AttributeKind {
     }
 }
 
-pub struct Archive<'a> {
-    buf: &'a [u8],
+pub struct Archive<R> {
+    buf: R,
     header: Header,
     index: Index,
     resource_data_start: usize,
 }
-impl<'a> Archive<'a> {
-    pub fn parse(buf: &'a [u8]) -> Result<Self, JImageError> {
-        Parser::<NativeEndian>::new(buf).parse_archive()
+impl<R> Archive<R>
+where
+    R: AsRef<[u8]>,
+{
+    pub fn parse(buf: R) -> Result<Self, JImageError> {
+        Parser::<R, NativeEndian>::new(buf).parse_archive()
     }
 
     pub fn header(&self) -> &Header {
@@ -115,14 +118,14 @@ impl<'a> Archive<'a> {
         &self.index
     }
 
-    pub fn resources(&self) -> Resources {
+    pub fn resources(&self) -> Resources<R> {
         Resources {
             archive: self,
             index: 0,
         }
     }
 
-    pub fn by_name(&self, path: &str) -> Option<Resource> {
+    pub fn by_name(&self, path: &str) -> Option<Resource<R>> {
         let hash_code = hash(path, HASH_MULTIPLIER);
         let index = hash_code % self.index.redirect_table.len() as i32;
         let value = self.index.redirect_table[index as usize];
@@ -138,9 +141,7 @@ impl<'a> Archive<'a> {
         let attributes_offset = self.index.attribute_offsets[value as usize];
         let attributes_data = &self.index.attribute_data[attributes_offset as usize..];
 
-        let attributes = Parser::<NativeEndian>::new(attributes_data)
-            .parse_attributes()
-            .ok()?;
+        let attributes = Parser::<_>::new(attributes_data).parse_attributes().ok()?;
 
         let resource = Resource {
             archive: self,
@@ -154,7 +155,7 @@ impl<'a> Archive<'a> {
         }
     }
 
-    fn verify(resource: &Resource, path: &str) -> bool {
+    fn verify(resource: &Resource<R>, path: &str) -> bool {
         // Module
         let path = if resource.module().len() > 0 {
             if path.chars().nth(0) != Some('/')
@@ -208,12 +209,12 @@ fn hash(data: &str, seed: i32) -> i32 {
     return (hash_code & 0x7fff_ffff) as i32;
 }
 
-pub struct Resources<'a> {
-    archive: &'a Archive<'a>,
+pub struct Resources<'a, R> {
+    archive: &'a Archive<R>,
     index: usize,
 }
-impl<'a> Iterator for Resources<'a> {
-    type Item = Resource<'a>;
+impl<'a, R: AsRef<[u8]>> Iterator for Resources<'a, R> {
+    type Item = Resource<'a, R>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.archive.index.redirect_table.len() {
@@ -221,11 +222,10 @@ impl<'a> Iterator for Resources<'a> {
         }
 
         let attribute_offset = self.archive.index.attribute_offsets[self.index];
-        let attributes = Parser::<NativeEndian>::new(
-            &self.archive.index.attribute_data[attribute_offset as usize..],
-        )
-        .parse_attributes()
-        .unwrap();
+        let attributes =
+            Parser::<_>::new(&self.archive.index.attribute_data[attribute_offset as usize..])
+                .parse_attributes()
+                .unwrap();
 
         self.index += 1;
 
@@ -236,18 +236,21 @@ impl<'a> Iterator for Resources<'a> {
     }
 }
 
-pub struct Resource<'a> {
+pub struct Resource<'a, R> {
     attributes: [u64; AttributeKind::Total as usize],
-    archive: &'a Archive<'a>,
+    archive: &'a Archive<R>,
 }
-impl fmt::Debug for Resource<'_> {
+impl<R> fmt::Debug for Resource<'_, R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Resource")
             .field("attributes", &self.attributes)
             .finish()
     }
 }
-impl<'a> Resource<'a> {
+impl<'a, R> Resource<'a, R>
+where
+    R: AsRef<[u8]>,
+{
     pub fn module(&self) -> &str {
         self.string_at(AttributeKind::Module)
     }
@@ -271,7 +274,7 @@ impl<'a> Resource<'a> {
     pub fn bytes(&self) -> &'a [u8] {
         let offset = self.archive.resource_data_start + self.offset();
         let size = self.attributes[AttributeKind::Uncompressed as usize] as usize;
-        &self.archive.buf[offset..offset + size]
+        &self.archive.buf.as_ref()[offset..offset + size]
     }
 
     pub fn full_name(&self) -> String {

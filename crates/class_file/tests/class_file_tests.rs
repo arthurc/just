@@ -1,6 +1,6 @@
 use std::fs::File;
 
-use class_file::{AccessFlags, ClassFile, Parser};
+use just_class_file::{AccessFlags, ClassFile, Parser};
 
 fn with_class_file(f: impl FnOnce(ClassFile)) {
     f(

@@ -3,7 +3,7 @@ mod parser;
 use std::{
     convert::TryFrom,
     fmt::{self, Debug},
-    io::{Cursor, Read},
+    io::{Cursor, Read, Seek},
 };
 
 use byteorder::NativeEndian;
@@ -338,5 +338,11 @@ where
 impl<R> Read for Resource<'_, R> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         self.cursor.read(buf)
+    }
+}
+
+impl<R> Seek for Resource<'_, R> {
+    fn seek(&mut self, pos: std::io::SeekFrom) -> std::io::Result<u64> {
+        self.cursor.seek(pos)
     }
 }
